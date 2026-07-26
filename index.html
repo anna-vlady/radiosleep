@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RADIOSLEEP — Generative Audio Installation & Processing Station</title>
+  <title>RADIOSLEEP — Ethereal Generative Soundscape Installation</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
       <div class="brand">
         <div class="pulse-indicator"></div>
         <h1>RADIOSLEEP</h1>
-        <span class="badge">ABLETON-STYLE DAW ENGINE</span>
+        <span class="badge">ETHEREAL GRANULAR ENGINE</span>
       </div>
       <div class="system-status">
         <div class="status-item">
@@ -56,7 +56,7 @@
 
           <!-- Interactive Hold-to-Record Main Button -->
           <div class="record-button-wrapper">
-            <button id="btn-hold-record" class="record-trigger-btn" disabled>
+            <button id="btn-hold-record" class="record-trigger-btn">
               <div class="btn-ring"></div>
               <div class="btn-inner">
                 <svg class="mic-icon" viewBox="0 0 24 24" width="42" height="42">
@@ -97,7 +97,7 @@
         <div class="panel-header daw-header">
           <div>
             <h2>ABLETON MULTI-TRACK ARRANGEMENT VIEW</h2>
-            <span class="panel-subtitle">Simultaneous Track Visualizer & Dynamic Clip Matrix</span>
+            <span class="panel-subtitle">Simultaneous Track Visualizer & Dynamic Granular Matrix</span>
           </div>
           <div class="daw-transport-bar">
             <div class="tempo-box"><span class="label">BPM</span><span class="val">120.0</span></div>
@@ -187,7 +187,7 @@
             </div>
           </div>
 
-          <!-- Right DAW Arrangement Canvas View (Timeline & Waveform Clip Blocks) -->
+          <!-- Right DAW Arrangement Canvas View -->
           <div class="daw-canvas-container">
             <canvas id="daw-timeline-canvas" width="850" height="340"></canvas>
           </div>
@@ -251,26 +251,26 @@
 
         <!-- Master FX & Parameters Fine-Tuning -->
         <div class="fx-params-box">
-          <div class="panel-subtitle-bold">GENERATIVE PIPELINE & INTELLIGIBILITY</div>
+          <div class="panel-subtitle-bold">ETHEREAL GRANULAR & MODAL PARAMS</div>
           
           <!-- Intelligibility Slider Control -->
           <div class="control-group intelligibility-group">
             <div class="slider-header-flex">
               <label>Vocal Intelligibility:</label>
-              <span id="intelligibility-readout" class="mono-value">70% (Clear Words)</span>
+              <span id="intelligibility-readout" class="mono-value">70% (Balanced)</span>
             </div>
             <input type="range" id="slider-intelligibility" min="0" max="1" step="0.05" value="0.7" />
             <div class="slider-subtext">
-              <span>0% Abstract FX</span>
+              <span>0% Ethereal Cloud</span>
               <span>100% Clear Words</span>
             </div>
           </div>
 
           <div class="control-group">
-            <label>Slice Length Window (Strictly 1s – 3s):</label>
+            <label>Granular Cloud Density:</label>
             <div class="slice-range-display">
-              <span class="mono-value">1.0s – 3.0s</span>
-              <span class="sub-info">(Randomized per chop)</span>
+              <span class="mono-value">30 – 80 Grains/Sec</span>
+              <span class="sub-info">(Hanning Envelope)</span>
             </div>
           </div>
           <div class="control-group">
@@ -282,8 +282,8 @@
             <input type="range" id="slider-bg-gain" min="0" max="1.0" step="0.05" value="0.35" />
           </div>
           <div class="control-group">
-            <label>Reverb Space Send:</label>
-            <input type="range" id="slider-reverb-send" min="0" max="1.0" step="0.05" value="0.6" />
+            <label>6.5s Bloom Reverb & FDN Send:</label>
+            <input type="range" id="slider-reverb-send" min="0" max="1.0" step="0.05" value="0.65" />
           </div>
           <button id="btn-force-rotate" class="btn-secondary full-width">Trigger Manual 2-Min Background Rotation</button>
         </div>
@@ -292,7 +292,7 @@
 
     <!-- Footer Info -->
     <footer class="app-footer">
-      <span>RADIOSLEEP Installation System — Ableton Arrangement Multi-Track View</span>
+      <span>RADIOSLEEP Installation System — Ethereal Granular & Modal Resonator Engine</span>
       <span>Press & Hold <strong>Spacebar</strong> or click <strong>HOLD TO RECORD</strong></span>
     </footer>
   </div>

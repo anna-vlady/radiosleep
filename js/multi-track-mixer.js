@@ -64,11 +64,11 @@ export function clearAllTracks() {
 
 /**
  * Pushes a new recording onto the stack following strict sequential logic:
- * 1st recording: Active = R1, BG1..4 = EMPTY
- * 2nd recording: Active = R2, BG1 = R1, BG2..4 = EMPTY
- * 3rd recording: Active = R3, BG1 = R2, BG2 = R1, BG3..4 = EMPTY
- * 4th recording: Active = R4, BG1 = R3, BG2 = R2, BG3 = R1, BG4 = EMPTY
- * 5th recording: Active = R5, BG1 = R4, BG2 = R3, BG3 = R2, BG4 = R1
+ * 1st recording: Active = R1 (Color 1), BG1..4 = EMPTY
+ * 2nd recording: Active = R2 (Color 2), BG1 = R1 (Color 1), BG2..4 = EMPTY
+ * 3rd recording: Active = R3 (Color 3), BG1 = R2 (Color 2), BG2 = R1 (Color 1), BG3..4 = EMPTY
+ * 4th recording: Active = R4 (Color 4), BG1 = R3 (Color 3), BG2 = R2 (Color 2), BG3 = R1 (Color 1), BG4 = EMPTY
+ * 5th recording: Active = R5 (Color 5), BG1 = R4 (Color 4), BG2 = R3 (Color 3), BG3 = R2 (Color 2), BG4 = R1 (Color 1)
  */
 export function setActiveRecordingItem(item) {
   if (!item || !item.audioBuffer) return;
@@ -82,14 +82,7 @@ export function setActiveRecordingItem(item) {
   // Add new item to front of stack
   sampleStack.unshift(item);
 
-  // Apply stack allocations:
-  // Active = sampleStack[0]
-  // BG 1  = sampleStack[1] (if exists)
-  // BG 2  = sampleStack[2] (if exists)
-  // BG 3  = sampleStack[3] (if exists)
-  // BG 4  = sampleStack[4] (if exists)
-
-  // 1. Update Active Track
+  // 1. Update Active Track (Track 1)
   if (activeStream) {
     activeStream.stop();
   }
@@ -103,11 +96,10 @@ export function setActiveRecordingItem(item) {
     (info) => handleSlicePlayEvent('active', 0, info)
   );
 
-  // 2. Update 4 Non-Active Background Slots
+  // 2. Update 4 Non-Active Background Slots (Tracks 2-5)
   for (let i = 0; i < 4; i++) {
     const bgItemForSlot = sampleStack[i + 1] || null;
 
-    // Stop current stream in slot i
     if (bgStreams[i]) {
       bgStreams[i].stop();
       bgStreams[i] = null;
@@ -134,11 +126,9 @@ export function setActiveRecordingItem(item) {
  */
 export function rotateBackgroundTracks() {
   if (sampleStack.length <= 5) {
-    // If 5 or fewer samples exist, stack allocation remains fixed as requested
     return;
   }
 
-  // Available pool of background samples = sampleStack[1..end]
   const bgPool = sampleStack.slice(1);
 
   for (let i = 0; i < 4; i++) {
@@ -188,16 +178,19 @@ function startRotationClock() {
  * Handles visual slice play event for UI meters & Ableton DAW timeline
  */
 function handleSlicePlayEvent(role, slotIndex, info) {
+  const currentItem = role === 'active' ? activeItem : bgItems[slotIndex - 1];
+  const itemColor = (info && info.color) ? info.color : (currentItem ? currentItem.color : '#00D2FF');
+
   if (onMatrixUpdateCallback) {
     onMatrixUpdateCallback({
       role,
       slotIndex,
       activeItem,
       bgItems,
-      color: info.color,
-      fxType: info.fxType,
-      duration: info.duration,
-      startTime: info.startTime
+      color: itemColor,
+      fxType: info ? info.fxType : 'CLOUD',
+      duration: info ? info.duration : 2.0,
+      startTime: info ? info.startTime : 0
     });
   }
 }

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   RADIOSLEEP — AudioContext Manager & Master Bus Architecture
+   RADIOSLEEP — AudioContext Manager & Master Ethereal DSP Bus Architecture
    ========================================================================== */
 
 let audioCtx = null;
@@ -7,10 +7,24 @@ let masterGain = null;
 let masterLimiter = null;
 let masterReverb = null;
 let reverbDryWetGain = null;
+
 let activeTrackBusGain = null;
 let bgTrackBusGain = null;
 let ambientBusGain = null;
 
+// Ethereal DSP Busses: FDN Delay & Modal Resonator Bank
+let fdnDelayLeft = null;
+let fdnDelayRight = null;
+let fdnFeedbackGain = null;
+let fdnFilterNode = null;
+let fdnSendGain = null;
+
+let modalResonatorBank = [];
+let modalSendGain = null;
+
+/**
+ * Initializes AudioContext & Master Ethereal Audio Busses
+ */
 export function initAudioContext() {
   if (audioCtx) return audioCtx;
 
@@ -19,7 +33,7 @@ export function initAudioContext() {
 
   // Master Limiter / Compressor (Prevents clipping & distortion)
   masterLimiter = audioCtx.createDynamicsCompressor();
-  masterLimiter.threshold.setValueAtTime(-1.0, audioCtx.currentTime);
+  masterLimiter.threshold.setValueAtTime(-2.0, audioCtx.currentTime);
   masterLimiter.knee.setValueAtTime(0, audioCtx.currentTime);
   masterLimiter.ratio.setValueAtTime(20, audioCtx.currentTime);
   masterLimiter.attack.setValueAtTime(0.003, audioCtx.currentTime);
@@ -27,17 +41,65 @@ export function initAudioContext() {
 
   // Master Gain
   masterGain = audioCtx.createGain();
-  masterGain.gain.setValueAtTime(0.9, audioCtx.currentTime);
+  masterGain.gain.setValueAtTime(0.85, audioCtx.currentTime);
 
-  // Reverb Send Architecture
+  // --- 1. Deep Bloom Reverb ---
   masterReverb = audioCtx.createConvolver();
   reverbDryWetGain = audioCtx.createGain();
-  reverbDryWetGain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+  reverbDryWetGain.gain.setValueAtTime(0.45, audioCtx.currentTime);
+  masterReverb.buffer = createDeepBloomImpulseResponse(audioCtx, 4.5, 2.5);
 
-  // Generate Synthetic Impulsive Reverb Response (Spacey Hall)
-  masterReverb.buffer = createImpulseResponse(audioCtx, 3.5, 2.2);
+  // --- 2. Feedback Delay Network (FDN) ---
+  fdnSendGain = audioCtx.createGain();
+  fdnSendGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
 
-  // Bus Gain Nodes
+  fdnDelayLeft = audioCtx.createDelay(2.0);
+  fdnDelayLeft.delayTime.setValueAtTime(0.375, audioCtx.currentTime); // 375ms
+
+  fdnDelayRight = audioCtx.createDelay(2.0);
+  fdnDelayRight.delayTime.setValueAtTime(0.500, audioCtx.currentTime); // 500ms
+
+  // Safe non-runaway feedback gain (0.25)
+  fdnFeedbackGain = audioCtx.createGain();
+  fdnFeedbackGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+
+  fdnFilterNode = audioCtx.createBiquadFilter();
+  fdnFilterNode.type = 'lowpass';
+  fdnFilterNode.frequency.setValueAtTime(2400, audioCtx.currentTime); // Soft warm damping
+
+  // FDN Routing: Send -> Delays -> Filter -> Feedback Gain -> Cross-Feed
+  fdnSendGain.connect(fdnDelayLeft);
+  fdnSendGain.connect(fdnDelayRight);
+
+  fdnDelayLeft.connect(fdnFilterNode);
+  fdnDelayRight.connect(fdnFilterNode);
+
+  fdnFilterNode.connect(fdnFeedbackGain);
+  fdnFeedbackGain.connect(fdnDelayRight);
+  fdnFeedbackGain.connect(fdnDelayLeft);
+
+  fdnFilterNode.connect(masterReverb);
+  fdnFilterNode.connect(masterLimiter);
+
+  // --- 3. Sympathetic Modal Resonator Bank ---
+  modalSendGain = audioCtx.createGain();
+  modalSendGain.gain.setValueAtTime(0.20, audioCtx.currentTime);
+
+  // Modal Pentatonic Scale Frequencies (Hz): C3, G3, B3, C4, D4
+  const modalFreqs = [130.81, 196.00, 246.94, 261.63, 293.66];
+  modalResonatorBank = modalFreqs.map(freq => {
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    filter.Q.setValueAtTime(6.0, audioCtx.currentTime); // Smooth warm resonance
+
+    modalSendGain.connect(filter);
+    filter.connect(masterReverb);
+    filter.connect(masterLimiter);
+    return filter;
+  });
+
+  // --- Track Busses ---
   activeTrackBusGain = audioCtx.createGain();
   activeTrackBusGain.gain.setValueAtTime(1.0, audioCtx.currentTime);
 
@@ -47,15 +109,18 @@ export function initAudioContext() {
   ambientBusGain = audioCtx.createGain();
   ambientBusGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
 
-  // Wiring Nodes:
-  // Active/BG/Ambient Busses -> Master Limiter -> Master Gain -> Audio Destination
+  // Wiring Busses to Output & Effects
   activeTrackBusGain.connect(masterLimiter);
-  bgTrackBusGain.connect(masterLimiter);
-  ambientBusGain.connect(masterLimiter);
-
-  // Reverb Routing
   activeTrackBusGain.connect(masterReverb);
+  activeTrackBusGain.connect(fdnSendGain);
+  activeTrackBusGain.connect(modalSendGain);
+
+  bgTrackBusGain.connect(masterLimiter);
   bgTrackBusGain.connect(masterReverb);
+  bgTrackBusGain.connect(fdnSendGain);
+  bgTrackBusGain.connect(modalSendGain);
+
+  ambientBusGain.connect(masterLimiter);
   ambientBusGain.connect(masterReverb);
 
   masterReverb.connect(reverbDryWetGain);
@@ -83,6 +148,18 @@ export function getAmbientBus() {
   return ambientBusGain;
 }
 
+export function getReverbNode() {
+  return masterReverb;
+}
+
+export function getFdnSendBus() {
+  return fdnSendGain;
+}
+
+export function getModalSendBus() {
+  return modalSendGain;
+}
+
 export function setReverbSend(value) {
   if (reverbDryWetGain && audioCtx) {
     reverbDryWetGain.gain.linearRampToValueAtTime(value, audioCtx.currentTime + 0.1);
@@ -102,9 +179,9 @@ export function setBgGain(value) {
 }
 
 /**
- * Generates synthetic impulse response for lush spacey ambient reverb
+ * Generates impulse response for Bloom Reverb
  */
-function createImpulseResponse(ctx, duration, decay) {
+function createDeepBloomImpulseResponse(ctx, duration = 4.5, decay = 2.5) {
   const sampleRate = ctx.sampleRate;
   const length = sampleRate * duration;
   const impulse = ctx.createBuffer(2, length, sampleRate);
@@ -113,9 +190,9 @@ function createImpulseResponse(ctx, duration, decay) {
 
   for (let i = 0; i < length; i++) {
     const n = i / length;
-    const factor = Math.pow(1 - n, decay);
-    left[i] = (Math.random() * 2 - 1) * factor;
-    right[i] = (Math.random() * 2 - 1) * factor;
+    const envelope = Math.pow(1 - n, decay) * (1 - Math.exp(-n * 10));
+    left[i] = (Math.random() * 2 - 1) * envelope * 0.5;
+    right[i] = (Math.random() * 2 - 1) * envelope * 0.5;
   }
 
   return impulse;

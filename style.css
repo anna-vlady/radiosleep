@@ -1,5 +1,5 @@
 /* ==========================================================================
-   RADIOSLEEP - Modern Generative Audio Installation Design System & CSS
+   RADIOSLEEP - Dynamic Color-Coded Multi-Track DAW & Archive CSS
    ========================================================================== */
 
 :root {
@@ -16,13 +16,6 @@
   --accent-cyan-glow: rgba(0, 210, 255, 0.3);
   --accent-purple: #9D4EDD;
   --accent-amber: #FFB703;
-
-  --track-active-color: #FF3B5C;
-  --track-bg1-color: #00D2FF;
-  --track-bg2-color: #3B82F6;
-  --track-bg3-color: #9D4EDD;
-  --track-bg4-color: #FFB703;
-  --track-amb-color: #00E699;
 
   --text-main: #F1F5F9;
   --text-muted: #8E9BAE;
@@ -456,6 +449,7 @@ body {
   background: #0D121D;
 }
 
+/* DYNAMIC TRACK HEADER STRIP WITH BOLD SAMPLE COLOR ACCENT BORDER */
 .daw-header-strip {
   height: 56px;
   display: flex;
@@ -463,23 +457,16 @@ body {
   gap: 0.6rem;
   padding: 0 0.65rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  position: relative;
-}
-
-.daw-header-strip::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
+  border-left: 6px solid #334155;
+  transition: border-color 0.3s ease;
+  background: rgba(13, 18, 29, 0.9);
 }
 
 .track-id {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--text-main);
   width: 24px;
 }
 
@@ -782,6 +769,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.06);
   font-family: var(--font-mono);
   font-size: 0.7rem;
+  transition: border-color 0.2s ease;
 }
 
 .archive-item-info {
@@ -807,6 +795,8 @@ body {
   padding: 0.15rem 0.45rem;
   border-radius: var(--radius-sm);
   letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .badge-active {

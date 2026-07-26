@@ -84,9 +84,9 @@ export function initUI({ onStartRecord, onStopRecord, onPresetSelect, onSourceCh
       setIntelligibility(val);
       if (intelligibilityReadout) {
         const pct = Math.round(val * 100);
-        let label = 'Abstract FX';
+        let label = 'Ethereal Cloud';
         if (pct > 75) label = 'Clear Words';
-        else if (pct > 40) label = 'Balanced FX';
+        else if (pct > 40) label = 'Balanced';
         intelligibilityReadout.innerText = `${pct}% (${label})`;
       }
     });
@@ -226,40 +226,51 @@ export function updateVuMeter(level) {
 }
 
 /**
- * Updates Multi-Track Names & Registers Triggered Clips on Timeline
+ * Updates Multi-Track Names, Strip Color Accent Bars & Registers Triggered Clips on Timeline
  */
 export function updateTrackMatrixUI(info) {
   const activeItem = getActiveItem();
   const bgItems = getBgItems();
 
+  // 1. Track 1: Active Track Header
   const dawT1 = document.getElementById('daw-t1-name');
   const stripT1 = document.getElementById('strip-t1');
   if (dawT1) {
     dawT1.innerText = activeItem ? activeItem.name : 'Empty';
   }
-  if (stripT1 && activeItem) {
-    stripT1.style.setProperty('--track-strip-color', activeItem.color);
+  if (stripT1) {
+    const activeColor = activeItem ? (activeItem.color || '#FF3B5C') : '#334155';
+    stripT1.style.borderLeft = `6px solid ${activeColor}`;
   }
 
+  // 2. Tracks 2-5: Background Layer Headers
   for (let i = 1; i <= 4; i++) {
     const dawNode = document.getElementById(`daw-t${i+1}-name`);
+    const stripNode = document.getElementById(`strip-t${i+1}`);
     const item = bgItems[i - 1];
     if (dawNode) {
       dawNode.innerText = item ? item.name : 'Empty';
     }
+    if (stripNode) {
+      const bgColor = item ? (item.color || '#00D2FF') : '#334155';
+      stripNode.style.borderLeft = `6px solid ${bgColor}`;
+    }
   }
 
-  if (info.fxType && info.duration) {
+  // 3. Register clip block onto DAW Timeline Canvas
+  if (info && info.fxType && info.duration) {
     const now = (Date.now() - startTimeMs) / 1000;
     const trackIndex = info.role === 'active' ? 0 : info.slotIndex;
+    const currentItem = info.role === 'active' ? activeItem : bgItems[info.slotIndex - 1];
+    const clipColor = currentItem ? (currentItem.color || '#00D2FF') : (info.color || '#00D2FF');
 
     activeClips.push({
       trackIndex,
       startTime: now,
       duration: info.duration,
-      color: info.color || '#00D2FF',
+      color: clipColor,
       fxType: info.fxType,
-      itemName: info.role === 'active' ? (activeItem ? activeItem.name : 'Active') : (bgItems[info.slotIndex - 1] ? bgItems[info.slotIndex - 1].name : 'Sample')
+      itemName: currentItem ? currentItem.name : 'Sample'
     });
   }
 
@@ -309,13 +320,14 @@ export async function refreshArchiveUI() {
   archiveList.innerHTML = items.reverse().map(item => {
     let statusBadgeHtml = '';
     let actionBtnHtml = '';
+    const itemColor = item.color || '#00D2FF';
 
     if (activeName && item.name === activeName) {
-      statusBadgeHtml = `<span class="archive-status-badge badge-active">ACTIVE TRACK</span>`;
-      actionBtnHtml = `<span class="archive-active-indicator" style="color: var(--accent-red); font-weight:700; font-size:0.7rem;">★ Active Now</span>`;
+      statusBadgeHtml = `<span class="archive-status-badge badge-active" style="border-color:${itemColor}; color:${itemColor}">ACTIVE TRACK</span>`;
+      actionBtnHtml = `<span class="archive-active-indicator" style="color: ${itemColor}; font-weight:700; font-size:0.7rem;">★ Active Now</span>`;
     } else if (bgNames.includes(item.name)) {
       const layerIdx = bgNames.indexOf(item.name) + 1;
-      statusBadgeHtml = `<span class="archive-status-badge badge-bg">BG LAYER ${layerIdx}</span>`;
+      statusBadgeHtml = `<span class="archive-status-badge badge-bg" style="border-color:${itemColor}; color:${itemColor}">BG LAYER ${layerIdx}</span>`;
       actionBtnHtml = `<button class="btn-secondary btn-play-archive" data-id="${item.id}">Promote to Active</button>`;
     } else {
       statusBadgeHtml = `<span class="archive-status-badge badge-stored">STATIONARY / STORED</span>`;
@@ -323,11 +335,11 @@ export async function refreshArchiveUI() {
     }
 
     return `
-      <div class="archive-item" style="border-left: 4px solid ${item.color || '#00D2FF'}">
+      <div class="archive-item" style="border-left: 6px solid ${itemColor}">
         <div class="archive-item-info">
           <div class="archive-item-header">
-            <span class="archive-color-dot" style="background-color: ${item.color || '#00D2FF'}"></span>
-            <span class="archive-item-title">${item.name}</span>
+            <span class="archive-color-dot" style="background-color: ${itemColor}; width:10px; height:10px; border-radius:50%; display:inline-block; box-shadow: 0 0 6px ${itemColor}"></span>
+            <span class="archive-item-title" style="color: ${itemColor}">${item.name}</span>
             ${statusBadgeHtml}
           </div>
           <span class="archive-item-meta">${item.duration.toFixed(2)}s | ${new Date(item.timestamp).toLocaleTimeString()}</span>
@@ -381,6 +393,8 @@ function startDawTimelineLoop() {
 
   const render = () => {
     const now = (Date.now() - startTimeMs) / 1000;
+    const activeItem = getActiveItem();
+    const bgItems = getBgItems();
 
     const timeCodeNode = document.getElementById('daw-time-code');
     if (timeCodeNode) {
@@ -396,17 +410,28 @@ function startDawTimelineLoop() {
     const playheadX = dawCanvas.width * 0.75;
     const windowStartSec = now - (playheadX / pixelsPerSecond);
 
+    // Draw Track Rows with Left Color Accent Lines
     for (let i = 0; i < numTracks; i++) {
       const y = i * trackHeight;
+      const currentTrackItem = i === 0 ? activeItem : (i <= 4 ? bgItems[i - 1] : null);
+      const trackColor = currentTrackItem ? (currentTrackItem.color || '#00D2FF') : null;
+
       dawCtx.fillStyle = i % 2 === 0 ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.2)';
       dawCtx.fillRect(0, y, dawCanvas.width, trackHeight);
 
+      // Track bottom divider line
       dawCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
       dawCtx.lineWidth = 1;
       dawCtx.beginPath();
       dawCtx.moveTo(0, y + trackHeight);
       dawCtx.lineTo(dawCanvas.width, y + trackHeight);
       dawCtx.stroke();
+
+      // Bold Left Canvas Color Indicator per Track
+      if (trackColor) {
+        dawCtx.fillStyle = trackColor;
+        dawCtx.fillRect(0, y, 5, trackHeight);
+      }
     }
 
     const gridInterval = 1.0;
