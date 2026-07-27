@@ -579,6 +579,130 @@ body {
   transition: width 1s linear;
 }
 
+/* ==========================================================================
+   TACTILE DARK LED ROTARY KNOB COMPONENT (Matching Reference Design)
+   ========================================================================== */
+.knob-section-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1.5rem;
+  background: #141720;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
+}
+
+.knob-widget-wrapper {
+  position: relative;
+  width: 220px;
+  height: 230px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Circular LED Dot Ring Arc overlay */
+.knob-led-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 220px;
+  height: 190px;
+  pointer-events: none;
+}
+
+.led-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0d1017;
+  border: 1px solid #1a1e28;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9);
+  transform: translate(-50%, -50%);
+  transition: background 0.05s ease, box-shadow 0.05s ease;
+}
+
+.led-dot.active {
+  background: #39FF14;
+  border-color: #55FF33;
+  box-shadow: 0 0 8px #39FF14, 0 0 3px #FFFFFF;
+}
+
+/* Tactile Dark Rotary Knob Body */
+.tactile-knob-body {
+  position: relative;
+  width: 136px;
+  height: 136px;
+  margin-top: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 45% 35%, #252a36 0%, #151821 70%, #0b0d13 100%);
+  border: 3px solid #1c202c;
+  box-shadow: 
+    0 14px 32px rgba(0, 0, 0, 0.85),
+    inset 0 2px 5px rgba(255, 255, 255, 0.15),
+    inset 0 -6px 14px rgba(0, 0, 0, 0.95);
+  cursor: grab;
+  touch-action: none;
+  will-change: transform;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.05s linear;
+}
+
+.tactile-knob-body:active {
+  cursor: grabbing;
+}
+
+.knob-outer-ring {
+  width: 114px;
+  height: 114px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #181c26 0%, #0e1017 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+.knob-inner-bevel {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #212634 0%, #12151f 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.7), inset 0 2px 4px rgba(255, 255, 255, 0.12);
+}
+
+.knob-center-cap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #191d28 0%, #0c0e15 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+.knob-label {
+  margin-top: 1.25rem;
+  font-family: var(--font-main);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #7b88a2;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+}
+
 /* Ambient Soundscape Controls */
 .ambient-bed-controls {
   display: flex;

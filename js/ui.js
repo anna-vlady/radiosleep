@@ -30,6 +30,9 @@ export function initUI({ onStartRecord, onStopRecord, onPresetSelect, onSourceCh
     startDawTimelineLoop();
   }
 
+  // Initialize standalone visual LED Rotary Knob
+  initTactileLedKnob();
+
   const btnHoldRecord = document.getElementById('btn-hold-record');
   const recLed = document.getElementById('recording-led');
   const ledText = document.getElementById('led-status-text');
@@ -567,4 +570,107 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
   ctx.lineTo(x, y + radius);
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
+}
+
+/**
+ * Standalone Visual Tactile Dark LED Rotary Knob Controller
+ * (Spins smoothly and illuminates surrounding green LED dots — NO audio functions attached)
+ */
+function initTactileLedKnob() {
+  const knobRing = document.getElementById('knob-led-ring');
+  const knobBody = document.getElementById('tactile-knob-body');
+  if (!knobRing || !knobBody) return;
+
+  const TOTAL_DOTS = 36;
+  const START_ANGLE = -135; // deg (7 o'clock)
+  const END_ANGLE = 135;    // deg (5 o'clock)
+  const RANGE = END_ANGLE - START_ANGLE; // 270 deg
+  const RADIUS = 92; // px radius from center (220/2 = 110, ring center 110, 95)
+
+  const centerX = 110;
+  const centerY = 95;
+
+  const dots = [];
+
+  // Generate 36 LED dots around the arc
+  for (let i = 0; i < TOTAL_DOTS; i++) {
+    const frac = i / (TOTAL_DOTS - 1);
+    const angleDeg = START_ANGLE + frac * RANGE;
+    const angleRad = (angleDeg - 90) * (Math.PI / 180);
+
+    const x = centerX + RADIUS * Math.cos(angleRad);
+    const y = centerY + RADIUS * Math.sin(angleRad);
+
+    const dot = document.createElement('div');
+    dot.className = 'led-dot';
+    dot.style.left = `${x}px`;
+    dot.style.top = `${y}px`;
+
+    knobRing.appendChild(dot);
+    dots.push(dot);
+  }
+
+  // Initial Knob Angle & LED state (50% position = 0 deg)
+  let currentAngle = 0;
+  updateKnobUI(currentAngle);
+
+  function updateKnobUI(angle) {
+    knobBody.style.transform = `rotate(${angle}deg)`;
+
+    // Calculate fraction 0.0 to 1.0
+    const norm = (angle - START_ANGLE) / RANGE;
+    const activeCount = Math.round(norm * TOTAL_DOTS);
+
+    dots.forEach((dot, idx) => {
+      if (idx < activeCount) {
+        dot.classList.add('active');
+      } else {
+        dot.classList.remove('active');
+      }
+    });
+  }
+
+  // Interactive Dragging
+  let isDragging = false;
+  let startY = 0;
+  let startAngle = 0;
+
+  knobBody.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    knobBody.setPointerCapture(e.pointerId);
+    isDragging = true;
+    startY = e.clientY;
+    startAngle = currentAngle;
+  });
+
+  knobBody.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    const deltaY = startY - e.clientY; // Dragging UP increases angle
+    let nextAngle = startAngle + deltaY * 1.5;
+    nextAngle = Math.max(START_ANGLE, Math.min(END_ANGLE, nextAngle));
+
+    currentAngle = nextAngle;
+    updateKnobUI(currentAngle);
+  });
+
+  const endDrag = (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    if (e && e.pointerId != null) {
+      try { knobBody.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  };
+
+  knobBody.addEventListener('pointerup', endDrag);
+  knobBody.addEventListener('pointercancel', endDrag);
+
+  // Mouse Wheel support
+  if (knobBody.parentElement) {
+    knobBody.parentElement.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 8 : -8;
+      currentAngle = Math.max(START_ANGLE, Math.min(END_ANGLE, currentAngle + step));
+      updateKnobUI(currentAngle);
+    }, { passive: false });
+  }
 }
