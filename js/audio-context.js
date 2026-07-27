@@ -197,3 +197,80 @@ function createDeepBloomImpulseResponse(ctx, duration = 4.5, decay = 2.5) {
 
   return impulse;
 }
+
+let currentMasterGainValue = 0.85;
+let staticMuteTimeoutId = null;
+
+/**
+ * Plays a loud, crisp burst of radio static noise when switching active radio channels.
+ * Completely mutes/ducks the rest of the soundscape for the burst duration (inter-station drop out).
+ */
+export function playRadioStaticBurst(durationSec = 0.22) {
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
+  const now = audioCtx.currentTime;
+  const sampleRate = audioCtx.sampleRate;
+  const bufferSize = Math.floor(sampleRate * durationSec);
+  const buffer = audioCtx.createBuffer(1, bufferSize, sampleRate);
+  const data = buffer.getChannelData(0);
+
+  // High density radio static noise with punchy crackle bursts
+  for (let i = 0; i < bufferSize; i++) {
+    const white = Math.random() * 2 - 1;
+    const crackle = Math.random() < 0.12 ? (Math.random() * 2 - 1) * 1.6 : 1.0;
+    data[i] = white * crackle;
+  }
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+
+  // Bandpass filter for crisp radio inter-station static hiss
+  const radioFilter = audioCtx.createBiquadFilter();
+  radioFilter.type = 'bandpass';
+  radioFilter.frequency.setValueAtTime(2400, now);
+  radioFilter.Q.setValueAtTime(1.1, now);
+
+  // High volume static burst (a lot louder)
+  const burstGain = audioCtx.createGain();
+  burstGain.gain.setValueAtTime(0.001, now);
+  burstGain.gain.setValueAtTime(1.6, now + 0.002);
+  burstGain.gain.setValueAtTime(1.6, now + durationSec - 0.004);
+  burstGain.gain.setValueAtTime(0.001, now + durationSec);
+
+  source.connect(radioFilter);
+  radioFilter.connect(burstGain);
+
+  // Connect static directly to hardware destination so it bypasses masterGain ducking
+  burstGain.connect(audioCtx.destination);
+
+  // --- DUCK / MUTE THE ENTIRE SOUNDSCAPE DURING STATIC ---
+  if (masterGain) {
+    if (masterGain.gain.value > 0.01) {
+      currentMasterGainValue = masterGain.gain.value;
+    }
+
+    // Instant hard mute (no fade)
+    masterGain.gain.cancelScheduledValues(now);
+    masterGain.gain.setValueAtTime(0.0, now);
+
+    if (staticMuteTimeoutId) {
+      clearTimeout(staticMuteTimeoutId);
+    }
+
+    // Instant hard unmute when static finishes
+    staticMuteTimeoutId = setTimeout(() => {
+      if (audioCtx && masterGain) {
+        const unmuteTime = audioCtx.currentTime;
+        masterGain.gain.cancelScheduledValues(unmuteTime);
+        masterGain.gain.setValueAtTime(currentMasterGainValue, unmuteTime);
+      }
+    }, durationSec * 1000);
+  }
+
+  source.start(now);
+}
+
+

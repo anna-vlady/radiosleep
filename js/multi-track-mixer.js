@@ -3,6 +3,7 @@
    ========================================================================== */
 
 import { processAudioSampleToGenerativeStream } from './generative-engine.js';
+import { playRadioStaticBurst } from './audio-context.js';
 
 let activeStream = null;
 let activeItem = null; // { name, color, audioBuffer }
@@ -87,11 +88,15 @@ export function tuneToFrequencyIndex(index) {
 
   currentTunedIndex = newTunedIndex;
 
+  // Trigger radio static noise burst (short crisp inter-station tuning burst without fades)
+  playRadioStaticBurst(0.24);
+
   // 1. Update Active Track (Track 1)
   if (activeStream) {
     activeStream.stop();
     activeStream = null;
   }
+
 
   activeItem = targetItem;
   activeStream = processAudioSampleToGenerativeStream(
