@@ -13,6 +13,7 @@ const bgItems = [null, null, null, null]; // [{ name, color, audioBuffer }]
 
 // Recorded Samples Stack (FIFO Queue)
 const sampleStack = [];
+let currentTunedIndex = 0;
 
 // 2-Minute Rotation Clock (120 seconds)
 const ROTATION_INTERVAL_SEC = 120;
@@ -40,6 +41,14 @@ export function getBgItems() {
   return [...bgItems];
 }
 
+export function getTunedIndex() {
+  return currentTunedIndex;
+}
+
+export function getTotalArchiveCount() {
+  return sampleStack.length;
+}
+
 /**
  * Clears all active and background track streams
  */
@@ -59,6 +68,38 @@ export function clearAllTracks() {
   }
 
   sampleStack.length = 0;
+  currentTunedIndex = 0;
+  notifyMatrixUpdate();
+}
+
+/**
+ * Tunes the Active Track (Track 1) to sample at index K in sampleStack (0 = newest)
+ */
+export function tuneToFrequencyIndex(index) {
+  if (sampleStack.length === 0) return;
+
+  const N = sampleStack.length;
+  const newTunedIndex = ((index % N) + N) % N;
+  const targetItem = sampleStack[newTunedIndex];
+
+  if (!targetItem || !targetItem.audioBuffer) return;
+
+  currentTunedIndex = newTunedIndex;
+
+  if (activeStream) {
+    activeStream.stop();
+    activeStream = null;
+  }
+
+  activeItem = targetItem;
+  activeStream = processAudioSampleToGenerativeStream(
+    activeItem.audioBuffer,
+    'active',
+    0,
+    activeItem.color,
+    (info) => handleSlicePlayEvent('active', 0, info)
+  );
+
   notifyMatrixUpdate();
 }
 
@@ -81,6 +122,7 @@ export function setActiveRecordingItem(item) {
 
   // Add new item to front of stack
   sampleStack.unshift(item);
+  currentTunedIndex = 0;
 
   // 1. Update Active Track (Track 1)
   if (activeStream) {

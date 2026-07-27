@@ -3,7 +3,14 @@
    ========================================================================== */
 
 import { getAllArchivedRecordings } from './recorder.js';
-import { setActiveRecordingItem, getActiveItem, getBgItems } from './multi-track-mixer.js';
+import { 
+  setActiveRecordingItem, 
+  getActiveItem, 
+  getBgItems, 
+  tuneToFrequencyIndex, 
+  getTunedIndex, 
+  getTotalArchiveCount 
+} from './multi-track-mixer.js';
 import { setIntelligibility, getIntelligibility } from './generative-engine.js';
 import { setAbletonFileReference, applyAbletonMp3File } from './ambient-soundscape.js';
 
@@ -309,6 +316,7 @@ export async function refreshArchiveUI() {
   const items = await getAllArchivedRecordings();
   const activeItem = getActiveItem();
   const bgItems = getBgItems();
+  const tunedIdx = getTunedIndex();
 
   const activeName = activeItem ? activeItem.name : null;
   const bgNames = bgItems.map(b => b ? b.name : null);
@@ -317,32 +325,42 @@ export async function refreshArchiveUI() {
 
   if (items.length === 0) {
     archiveList.innerHTML = `<div class="empty-archive">No recordings stored yet. Hold record to capture the first vocal sample!</div>`;
+    updateKnobRotationUI(0, 0);
     return;
   }
 
-  archiveList.innerHTML = items.reverse().map(item => {
+  // Preserve items order (0 = newest)
+  const sortedItems = [...items].reverse();
+
+  archiveList.innerHTML = sortedItems.map((item, idx) => {
     let statusBadgeHtml = '';
     let actionBtnHtml = '';
     const itemColor = item.color || '#00D2FF';
+    const isTunedActive = activeName && item.name === activeName;
 
-    if (activeName && item.name === activeName) {
-      statusBadgeHtml = `<span class="archive-status-badge badge-active" style="border-color:${itemColor}; color:${itemColor}">ACTIVE TRACK</span>`;
-      actionBtnHtml = `<span class="archive-active-indicator" style="color: ${itemColor}; font-weight:700; font-size:0.7rem;">★ Active Now</span>`;
+    if (isTunedActive) {
+      statusBadgeHtml = `<span class="archive-status-badge badge-active" style="background:${itemColor}; color:#000; border-color:${itemColor}; font-weight:800;">📻 TUNED ACTIVE (CH ${tunedIdx})</span>`;
+      actionBtnHtml = `<span class="archive-active-indicator" style="color: ${itemColor}; font-weight:700; font-size:0.75rem;">★ TUNED ACTIVE</span>`;
     } else if (bgNames.includes(item.name)) {
       const layerIdx = bgNames.indexOf(item.name) + 1;
       statusBadgeHtml = `<span class="archive-status-badge badge-bg" style="border-color:${itemColor}; color:${itemColor}">BG LAYER ${layerIdx}</span>`;
-      actionBtnHtml = `<button class="btn-secondary btn-play-archive" data-id="${item.id}">Promote to Active</button>`;
+      actionBtnHtml = `<button class="btn-secondary btn-tune-archive" data-index="${idx}">Tune Channel</button>`;
     } else {
-      statusBadgeHtml = `<span class="archive-status-badge badge-stored">STATIONARY / STORED</span>`;
-      actionBtnHtml = `<button class="btn-secondary btn-play-archive" data-id="${item.id}">Promote to Active</button>`;
+      statusBadgeHtml = `<span class="archive-status-badge badge-stored">STORED</span>`;
+      actionBtnHtml = `<button class="btn-secondary btn-tune-archive" data-index="${idx}">Tune Channel</button>`;
     }
 
+    const cardClass = isTunedActive ? 'archive-item archive-item-active-tuned' : 'archive-item';
+    const cardGlowStyle = isTunedActive 
+      ? `border-left: 8px solid ${itemColor}; box-shadow: 0 0 16px ${hexToRgba(itemColor, 0.4)}, inset 0 0 12px ${hexToRgba(itemColor, 0.15)}; background: rgba(255,255,255,0.06);` 
+      : `border-left: 6px solid ${itemColor};`;
+
     return `
-      <div class="archive-item" style="border-left: 6px solid ${itemColor}">
+      <div class="${cardClass}" id="archive-card-${idx}" style="${cardGlowStyle}">
         <div class="archive-item-info">
           <div class="archive-item-header">
-            <span class="archive-color-dot" style="background-color: ${itemColor}; width:10px; height:10px; border-radius:50%; display:inline-block; box-shadow: 0 0 6px ${itemColor}"></span>
-            <span class="archive-item-title" style="color: ${itemColor}">${item.name}</span>
+            <span class="archive-color-dot" style="background-color: ${itemColor}; width:10px; height:10px; border-radius:50%; display:inline-block; box-shadow: 0 0 8px ${itemColor}"></span>
+            <span class="archive-item-title" style="color: ${itemColor}; font-size:0.8rem;">${item.name}</span>
             ${statusBadgeHtml}
           </div>
           <span class="archive-item-meta">${item.duration.toFixed(2)}s | ${new Date(item.timestamp).toLocaleTimeString()}</span>
@@ -359,14 +377,11 @@ export async function refreshArchiveUI() {
     `;
   }).join('');
 
-  archiveList.querySelectorAll('.btn-play-archive').forEach(btn => {
+  archiveList.querySelectorAll('.btn-tune-archive').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const item = items.find(i => i.id === id);
-      if (item) {
-        setActiveRecordingItem(item);
-        refreshArchiveUI();
-      }
+      const index = parseInt(btn.getAttribute('data-index'));
+      tuneToFrequencyIndex(index);
+      refreshArchiveUI();
     });
   });
 
@@ -382,6 +397,15 @@ export async function refreshArchiveUI() {
       }
     });
   });
+
+  // Sync Tactile Rotary Knob rotation & LED dots
+  updateKnobRotationUI(tunedIdx, sortedItems.length);
+
+  // Auto-scroll the tuned active card into view inside the archive drawer
+  const tunedCard = document.getElementById(`archive-card-${tunedIdx}`);
+  if (tunedCard && !isUserScrubbingDial) {
+    tunedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 /**
@@ -572,9 +596,47 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+let isUserScrubbingDial = false;
+
 /**
- * Standalone Visual Tactile Dark LED Rotary Knob Controller
- * (Spins smoothly and illuminates surrounding green LED dots — NO audio functions attached)
+ * Updates Tactile Dark LED Rotary Knob Visual Angle & Illumination
+ */
+export function updateKnobRotationUI(index, totalCount) {
+  const knobBody = document.getElementById('tactile-knob-body');
+  const knobRing = document.getElementById('knob-led-ring');
+  if (!knobBody || !knobRing) return;
+
+  const TOTAL_DOTS = 36;
+  const START_ANGLE = -135;
+  const END_ANGLE = 135;
+  const RANGE = END_ANGLE - START_ANGLE;
+
+  let angle = START_ANGLE;
+  if (totalCount > 1) {
+    const stepAngle = RANGE / (totalCount - 1);
+    angle = START_ANGLE + index * stepAngle;
+  } else if (totalCount === 1) {
+    angle = START_ANGLE;
+  }
+
+  knobBody.style.transform = `rotate(${angle}deg)`;
+
+  const norm = (angle - START_ANGLE) / RANGE;
+  const activeCount = totalCount > 0 ? Math.round(norm * (TOTAL_DOTS - 1)) + 1 : 0;
+
+  const dots = knobRing.querySelectorAll('.led-dot');
+  dots.forEach((dot, idx) => {
+    if (idx < activeCount) {
+      dot.classList.add('active');
+    } else {
+      dot.classList.remove('active');
+    }
+  });
+}
+
+/**
+ * Tactile Dark LED Rotary Channel Selector Knob Controller
+ * (Turning knob 1 tick tunes Active Track to sample K from archive with N ticks for N total samples)
  */
 function initTactileLedKnob() {
   const knobRing = document.getElementById('knob-led-ring');
@@ -582,15 +644,15 @@ function initTactileLedKnob() {
   if (!knobRing || !knobBody) return;
 
   const TOTAL_DOTS = 36;
-  const START_ANGLE = -135; // deg (7 o'clock)
-  const END_ANGLE = 135;    // deg (5 o'clock)
-  const RANGE = END_ANGLE - START_ANGLE; // 270 deg
-  const RADIUS = 92; // px radius from center (220/2 = 110, ring center 110, 95)
+  const START_ANGLE = -135;
+  const END_ANGLE = 135;
+  const RANGE = END_ANGLE - START_ANGLE;
+  const RADIUS = 92;
 
   const centerX = 110;
   const centerY = 95;
 
-  const dots = [];
+  knobRing.innerHTML = '';
 
   // Generate 36 LED dots around the arc
   for (let i = 0; i < TOTAL_DOTS; i++) {
@@ -607,70 +669,62 @@ function initTactileLedKnob() {
     dot.style.top = `${y}px`;
 
     knobRing.appendChild(dot);
-    dots.push(dot);
   }
 
-  // Initial Knob Angle & LED state (50% position = 0 deg)
-  let currentAngle = 0;
-  updateKnobUI(currentAngle);
-
-  function updateKnobUI(angle) {
-    knobBody.style.transform = `rotate(${angle}deg)`;
-
-    // Calculate fraction 0.0 to 1.0
-    const norm = (angle - START_ANGLE) / RANGE;
-    const activeCount = Math.round(norm * TOTAL_DOTS);
-
-    dots.forEach((dot, idx) => {
-      if (idx < activeCount) {
-        dot.classList.add('active');
-      } else {
-        dot.classList.remove('active');
-      }
-    });
-  }
-
-  // Interactive Dragging
+  // Interactive Dragging & Tick Tuning
   let isDragging = false;
   let startY = 0;
-  let startAngle = 0;
+  let startIndex = 0;
+  const DRAG_PX_PER_STEP = 28; // 28px drag = 1 channel tick
+
+  function stepChannelTo(targetIndex) {
+    const totalCount = getTotalArchiveCount();
+    if (totalCount === 0) return;
+    const clampedIndex = ((targetIndex % totalCount) + totalCount) % totalCount;
+    if (clampedIndex !== getTunedIndex()) {
+      tuneToFrequencyIndex(clampedIndex);
+      refreshArchiveUI();
+    }
+  }
 
   knobBody.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     knobBody.setPointerCapture(e.pointerId);
     isDragging = true;
+    isUserScrubbingDial = true;
     startY = e.clientY;
-    startAngle = currentAngle;
+    startIndex = getTunedIndex();
   });
 
   knobBody.addEventListener('pointermove', (e) => {
     if (!isDragging) return;
-    const deltaY = startY - e.clientY; // Dragging UP increases angle
-    let nextAngle = startAngle + deltaY * 1.5;
-    nextAngle = Math.max(START_ANGLE, Math.min(END_ANGLE, nextAngle));
-
-    currentAngle = nextAngle;
-    updateKnobUI(currentAngle);
+    const deltaY = e.clientY - startY; // Dragging DOWN increases channel index (newer to older)
+    const steps = Math.round(deltaY / DRAG_PX_PER_STEP);
+    const targetIndex = startIndex + steps;
+    stepChannelTo(targetIndex);
   });
 
   const endDrag = (e) => {
     if (!isDragging) return;
     isDragging = false;
+    isUserScrubbingDial = false;
     if (e && e.pointerId != null) {
       try { knobBody.releasePointerCapture(e.pointerId); } catch (_) {}
     }
+    refreshArchiveUI();
   };
 
   knobBody.addEventListener('pointerup', endDrag);
   knobBody.addEventListener('pointercancel', endDrag);
 
-  // Mouse Wheel support
+  // Mouse Wheel scroll support
   if (knobBody.parentElement) {
     knobBody.parentElement.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const step = e.deltaY < 0 ? 8 : -8;
-      currentAngle = Math.max(START_ANGLE, Math.min(END_ANGLE, currentAngle + step));
-      updateKnobUI(currentAngle);
+      const totalCount = getTotalArchiveCount();
+      if (totalCount === 0) return;
+      const step = e.deltaY < 0 ? -1 : 1; // Scroll UP = prev channel, Scroll DOWN = next channel
+      stepChannelTo(getTunedIndex() + step);
     }, { passive: false });
   }
 }

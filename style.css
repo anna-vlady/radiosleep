@@ -703,6 +703,21 @@ body {
   text-transform: uppercase;
 }
 
+/* TUNED ACTIVE ARCHIVE CARD GLOW */
+.archive-item-active-tuned {
+  border-left-width: 8px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 0 16px rgba(0, 210, 255, 0.25), inset 0 0 12px rgba(255, 255, 255, 0.05);
+  transition: all var(--transition-normal);
+}
+
+.archive-status-badge.badge-active {
+  font-weight: 800;
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.5rem;
+  letter-spacing: 0.05em;
+}
+
 /* Ambient Soundscape Controls */
 .ambient-bed-controls {
   display: flex;
