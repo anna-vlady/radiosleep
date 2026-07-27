@@ -284,7 +284,9 @@ export function updateTrackMatrixUI(info) {
     });
   }
 
-  refreshArchiveUI();
+  if (info && info.role === 'refresh') {
+    refreshArchiveUI();
+  }
 }
 
 /**
@@ -400,12 +402,6 @@ export async function refreshArchiveUI() {
 
   // Sync Tactile Rotary Knob rotation & LED dots
   updateKnobRotationUI(tunedIdx, sortedItems.length);
-
-  // Auto-scroll the tuned active card into view inside the archive drawer
-  const tunedCard = document.getElementById(`archive-card-${tunedIdx}`);
-  if (tunedCard && !isUserScrubbingDial) {
-    tunedCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
 }
 
 /**

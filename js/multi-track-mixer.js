@@ -73,7 +73,8 @@ export function clearAllTracks() {
 }
 
 /**
- * Tunes the Active Track (Track 1) to sample at index K in sampleStack (0 = newest)
+ * Tunes Active Track (Track 1) and 4 Background Layers (Tracks 2-5) using Option 1 (Sliding Window)
+ * When tuned to station K, Track 1 = Sample K, and Tracks 2-5 = Samples (K+1..K+4) mod N
  */
 export function tuneToFrequencyIndex(index) {
   if (sampleStack.length === 0) return;
@@ -86,6 +87,7 @@ export function tuneToFrequencyIndex(index) {
 
   currentTunedIndex = newTunedIndex;
 
+  // 1. Update Active Track (Track 1)
   if (activeStream) {
     activeStream.stop();
     activeStream = null;
@@ -100,16 +102,39 @@ export function tuneToFrequencyIndex(index) {
     (info) => handleSlicePlayEvent('active', 0, info)
   );
 
+  // 2. Update 4 Non-Active Background Slots (Tracks 2-5) using Option 1 Sliding Window
+  for (let i = 0; i < 4; i++) {
+    let bgItemForSlot = null;
+    if (N > 1) {
+      const bgIdx = (newTunedIndex + i + 1) % N;
+      if (bgIdx !== newTunedIndex) {
+        bgItemForSlot = sampleStack[bgIdx];
+      }
+    }
+
+    if (bgStreams[i]) {
+      bgStreams[i].stop();
+      bgStreams[i] = null;
+    }
+
+    bgItems[i] = bgItemForSlot;
+
+    if (bgItemForSlot && bgItemForSlot.audioBuffer) {
+      bgStreams[i] = processAudioSampleToGenerativeStream(
+        bgItemForSlot.audioBuffer,
+        'background',
+        i + 1,
+        bgItemForSlot.color,
+        (info) => handleSlicePlayEvent('background', i + 1, info)
+      );
+    }
+  }
+
   notifyMatrixUpdate();
 }
 
 /**
- * Pushes a new recording onto the stack following strict sequential logic:
- * 1st recording: Active = R1 (Color 1), BG1..4 = EMPTY
- * 2nd recording: Active = R2 (Color 2), BG1 = R1 (Color 1), BG2..4 = EMPTY
- * 3rd recording: Active = R3 (Color 3), BG1 = R2 (Color 2), BG2 = R1 (Color 1), BG3..4 = EMPTY
- * 4th recording: Active = R4 (Color 4), BG1 = R3 (Color 3), BG2 = R2 (Color 2), BG3 = R1 (Color 1), BG4 = EMPTY
- * 5th recording: Active = R5 (Color 5), BG1 = R4 (Color 4), BG2 = R3 (Color 3), BG3 = R2 (Color 2), BG4 = R1 (Color 1)
+ * Pushes a new recording onto the stack and tunes to channel 0 (newest recording)
  */
 export function setActiveRecordingItem(item) {
   if (!item || !item.audioBuffer) return;
@@ -122,45 +147,9 @@ export function setActiveRecordingItem(item) {
 
   // Add new item to front of stack
   sampleStack.unshift(item);
-  currentTunedIndex = 0;
 
-  // 1. Update Active Track (Track 1)
-  if (activeStream) {
-    activeStream.stop();
-  }
-
-  activeItem = sampleStack[0];
-  activeStream = processAudioSampleToGenerativeStream(
-    activeItem.audioBuffer,
-    'active',
-    0,
-    activeItem.color,
-    (info) => handleSlicePlayEvent('active', 0, info)
-  );
-
-  // 2. Update 4 Non-Active Background Slots (Tracks 2-5)
-  for (let i = 0; i < 4; i++) {
-    const bgItemForSlot = sampleStack[i + 1] || null;
-
-    if (bgStreams[i]) {
-      bgStreams[i].stop();
-      bgStreams[i] = null;
-    }
-
-    bgItems[i] = bgItemForSlot;
-
-    if (bgItemForSlot) {
-      bgStreams[i] = processAudioSampleToGenerativeStream(
-        bgItemForSlot.audioBuffer,
-        'background',
-        i + 1,
-        bgItemForSlot.color,
-        (info) => handleSlicePlayEvent('background', i + 1, info)
-      );
-    }
-  }
-
-  notifyMatrixUpdate();
+  // Force tune to newest recording (index 0)
+  tuneToFrequencyIndex(0);
 }
 
 /**
