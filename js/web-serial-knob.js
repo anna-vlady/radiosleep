@@ -142,15 +142,10 @@ let isHardwareRecording = false;
 
 /**
  * Parses Serial commands from Arduino sketch
- * Supported Commands:
- * - "REC_START" / "REC:1": Hold button to start recording
- * - "REC_STOP"  / "REC:0": Release button to finish & save recording
- * - "POT:512"   / "VAL:0.45": Analog potentiometer channel tuner
- * - "INTEL:0.7": Vocal Intelligibility slider (0.0 - 1.0)
- * - "AMB_VOL:0.5": Ambient soundscape volume slider (0.0 - 1.0)
- * - "SW" / "PUSH": Trigger 2-min background track rotation
  */
 async function handleSerialCommand(cmd) {
+  console.log('📡 Hardware USB Command received:', cmd);
+
   const totalCount = getTotalArchiveCount();
   const currentIdx = getTunedIndex();
 
@@ -197,7 +192,31 @@ async function handleSerialCommand(cmd) {
     return;
   }
 
-  // --- 2. ANALOG POTENTIOMETER CHANNEL TUNER ---
+  // --- 2. PHYSICAL TROYKA SLIDER VISUAL UI CONTROL (NO AUDIO MODIFICATION) ---
+  const upperCmd = cmd.toUpperCase();
+  if (upperCmd.startsWith('SLIDER') || upperCmd.startsWith('A1:') || upperCmd.startsWith('POT2:') || upperCmd.startsWith('VAL2:') || upperCmd.startsWith('S1:') || upperCmd.startsWith('DIST:') || upperCmd.startsWith('DRIVE:')) {
+    const parts = cmd.split(':');
+    const rawStr = parts.length > 1 ? parts[1] : cmd;
+    let num = parseFloat(rawStr);
+
+    if (!isNaN(num)) {
+      let pct = 0;
+      if (num > 1.0) {
+        pct = Math.round((num / 1023.0) * 100);
+      } else {
+        pct = Math.round(num * 100);
+      }
+      pct = Math.max(0, Math.min(100, pct));
+
+      const sliderEl = document.getElementById('slider-hardware-troyka');
+      const readoutEl = document.getElementById('hardware-slider-readout');
+      if (sliderEl) sliderEl.value = pct;
+      if (readoutEl) readoutEl.innerText = `${pct}%`;
+    }
+    return;
+  }
+
+  // --- 3. ANALOG POTENTIOMETER CHANNEL TUNER ---
   if (cmd.startsWith('VAL:') || cmd.startsWith('POT:')) {
     if (totalCount === 0) return;
 
