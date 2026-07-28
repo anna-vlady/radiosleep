@@ -1,8 +1,7 @@
-/* ==========================================================================
-   RADIOSLEEP — Hardware EC11 Rotary Encoder USB Web Serial Controller
-   ========================================================================== */
-
-import { tuneToFrequencyIndex, getTunedIndex, getTotalArchiveCount, rotateBackgroundTracks } from './multi-track-mixer.js';
+import { tuneToFrequencyIndex, getTunedIndex, getTotalArchiveCount, rotateBackgroundTracks, setActiveRecordingItem } from './multi-track-mixer.js';
+import { startRecording, stopRecording } from './recorder.js';
+import { setIntelligibility } from './generative-engine.js';
+import { setAmbientVolume } from './ambient-soundscape.js';
 import { refreshArchiveUI } from './ui.js';
 
 let serialPort = null;
@@ -10,7 +9,7 @@ let reader = null;
 let isConnected = false;
 
 /**
- * Initializes Web Serial USB Link for physical EC11 Rotary Encoder
+ * Initializes Web Serial USB Link for physical EC11 / Potentiometer / Hardware Controls
  */
 export function initWebSerialKnob() {
   const btnConnect = document.getElementById('btn-connect-hardware');
@@ -54,11 +53,11 @@ async function connectSerial() {
 
     isConnected = true;
     if (btnConnect) {
-      btnConnect.innerText = 'Disconnect USB Knob';
+      btnConnect.innerText = 'Disconnect USB Controller';
       btnConnect.classList.add('connected');
     }
     if (statusLabel) {
-      statusLabel.innerText = 'USB KNOB CONNECTED (115200 BAUD)';
+      statusLabel.innerText = 'USB CONTROLLER CONNECTED (115200 BAUD)';
       statusLabel.style.color = '#00E699';
     }
 
@@ -95,7 +94,7 @@ async function disconnectSerial() {
   }
 
   if (btnConnect) {
-    btnConnect.innerText = 'Connect USB Knob';
+    btnConnect.innerText = 'Connect USB Controller';
     btnConnect.classList.remove('connected');
   }
   if (statusLabel) {
@@ -122,7 +121,7 @@ async function readSerialLoop() {
       if (value) {
         buffer += value;
         const lines = buffer.split('\n');
-        buffer = lines.pop(); // Keep incomplete line fragment in buffer
+        buffer = lines.pop();
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -139,15 +138,66 @@ async function readSerialLoop() {
   }
 }
 
+let isHardwareRecording = false;
+
 /**
  * Parses Serial commands from Arduino sketch
- * Commands: "VAL:0.45", "POT:512", "+1", "-1", "CW", "CCW", "SW", "PUSH"
+ * Supported Commands:
+ * - "REC_START" / "REC:1": Hold button to start recording
+ * - "REC_STOP"  / "REC:0": Release button to finish & save recording
+ * - "POT:512"   / "VAL:0.45": Analog potentiometer channel tuner
+ * - "INTEL:0.7": Vocal Intelligibility slider (0.0 - 1.0)
+ * - "AMB_VOL:0.5": Ambient soundscape volume slider (0.0 - 1.0)
+ * - "SW" / "PUSH": Trigger 2-min background track rotation
  */
-function handleSerialCommand(cmd) {
+async function handleSerialCommand(cmd) {
   const totalCount = getTotalArchiveCount();
   const currentIdx = getTunedIndex();
 
-  // --- Analog Potentiometer Position Control (0.0 to 1.0 or 0 to 1023) ---
+  const recLed = document.getElementById('recording-led');
+  const ledText = document.getElementById('led-status-text');
+  const ledSubText = document.getElementById('led-sub-text');
+  const btnHoldRecord = document.getElementById('btn-hold-record');
+
+  // --- 1. HARDWARE PUSH BUTTON RECORDING (HOLD TO RECORD) ---
+  if (cmd === 'REC_START' || cmd === 'REC:1') {
+    if (isHardwareRecording) return;
+    isHardwareRecording = true;
+
+    if (btnHoldRecord) btnHoldRecord.classList.add('recording');
+    if (recLed) recLed.className = 'led-indicator active';
+    if (ledText) ledText.innerText = 'RECORDING ACTIVE (HARDWARE)';
+    if (ledSubText) ledSubText.innerText = 'Capturing vocal input from hardware button...';
+
+    startRecording();
+    return;
+  }
+
+  if (cmd === 'REC_STOP' || cmd === 'REC:0') {
+    if (!isHardwareRecording) return;
+    isHardwareRecording = false;
+
+    if (btnHoldRecord) btnHoldRecord.classList.remove('recording');
+    if (recLed) recLed.className = 'led-indicator idle';
+    if (ledText) ledText.innerText = 'PROCESSING SAMPLE';
+    if (ledSubText) ledSubText.innerText = 'Chopping & Applying FX...';
+
+    try {
+      const result = await stopRecording();
+      if (result && result.recordItem) {
+        setActiveRecordingItem(result.recordItem);
+      }
+    } catch (err) {
+      console.error('Hardware stop recording error:', err);
+    } finally {
+      if (ledText) ledText.innerText = 'IDLE / LISTENING';
+      if (ledSubText) ledSubText.innerText = 'Generative Soundscape Active';
+      refreshArchiveUI();
+    }
+    return;
+  }
+
+  // --- 2. ANALOG POTENTIOMETER CHANNEL TUNER ---
   if (cmd.startsWith('VAL:') || cmd.startsWith('POT:')) {
     if (totalCount === 0) return;
 
@@ -159,7 +209,6 @@ function handleSerialCommand(cmd) {
       ratio = rawVal / 1023.0;
     }
 
-    // Clamp ratio between 0.0 and 0.9999 & invert direction for natural clockwise rotation
     ratio = Math.max(0, Math.min(0.9999, 1.0 - ratio));
     const targetIdx = Math.floor(ratio * totalCount);
 
@@ -170,7 +219,36 @@ function handleSerialCommand(cmd) {
     return;
   }
 
-  // --- Incremental Ticks ---
+  // --- 3. VOCAL INTELLIGIBILITY POTENTIOMETER / SLIDER (INTEL:0.0 - 1.0) ---
+  if (cmd.startsWith('INTEL:')) {
+    const val = parseFloat(cmd.replace('INTEL:', ''));
+    if (!isNaN(val)) {
+      setIntelligibility(val);
+      const slider = document.getElementById('slider-intelligibility');
+      const readout = document.getElementById('intelligibility-readout');
+      if (slider) slider.value = val;
+      if (readout) {
+        const pct = Math.round(val * 100);
+        readout.innerText = `${pct}% (${pct > 75 ? 'Clear Words' : pct > 40 ? 'Balanced' : 'Ethereal Cloud'})`;
+      }
+    }
+    return;
+  }
+
+  // --- 4. AMBIENT VOLUME SLIDER (AMB_VOL:0.0 - 1.0) ---
+  if (cmd.startsWith('AMB_VOL:')) {
+    const val = parseFloat(cmd.replace('AMB_VOL:', ''));
+    if (!isNaN(val)) {
+      setAmbientVolume(val);
+      const slider = document.getElementById('slider-ambient-vol');
+      const readout = document.getElementById('ambient-vol-readout');
+      if (slider) slider.value = val;
+      if (readout) readout.innerText = `${Math.round(val * 100)}%`;
+    }
+    return;
+  }
+
+  // --- 5. INCREMENTAL TICKS & BUTTONS ---
   if (cmd === '+1' || cmd === 'CW' || cmd === 'STEP:1' || cmd === 'RIGHT') {
     if (totalCount === 0) return;
     const nextIdx = (currentIdx + 1) % totalCount;
@@ -181,8 +259,9 @@ function handleSerialCommand(cmd) {
     const prevIdx = ((currentIdx - 1) % totalCount + totalCount) % totalCount;
     tuneToFrequencyIndex(prevIdx);
     refreshArchiveUI();
-  } else if (cmd === 'SW' || cmd === 'PUSH' || cmd === 'BUTTON') {
+  } else if (cmd === 'SW' || cmd === 'PUSH' || cmd === 'ROTATE') {
     rotateBackgroundTracks();
   }
 }
+
 
