@@ -7,8 +7,10 @@ import { initAmbientSoundscape, startAmbientSoundscape, setAmbientSource, setAmb
 import { initMicrophone, startRecording, stopRecording, saveRecordingToArchive, getAllArchivedRecordings, clearAllArchivedRecordings, generatePresetTestBuffer } from './recorder.js';
 import { initMultiTrackMixer, setActiveRecordingItem, rotateBackgroundTracks, clearAllTracks } from './multi-track-mixer.js';
 import { initUI, updateVuMeter, updateTrackMatrixUI, updateRotationTimerUI, refreshArchiveUI } from './ui.js';
+import { initWebSerialKnob } from './web-serial-knob.js';
 
 let isEngineStarted = false;
+
 
 async function ensureAudioEngineStarted() {
   if (isEngineStarted) return;
@@ -119,4 +121,8 @@ document.addEventListener('DOMContentLoaded', () => {
       clearAllTracks();
     }
   });
+
+  // Initialize USB Web Serial hardware knob listener
+  initWebSerialKnob();
 });
+
