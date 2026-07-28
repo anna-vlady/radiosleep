@@ -2,6 +2,7 @@ import { tuneToFrequencyIndex, getTunedIndex, getTotalArchiveCount, rotateBackgr
 import { startRecording, stopRecording } from './recorder.js';
 import { setIntelligibility } from './generative-engine.js';
 import { setAmbientVolume } from './ambient-soundscape.js';
+import { setBgGain } from './audio-context.js';
 import { refreshArchiveUI } from './ui.js';
 
 let serialPort = null;
@@ -192,24 +193,28 @@ async function handleSerialCommand(cmd) {
     return;
   }
 
-  // --- 2. PHYSICAL TROYKA SLIDER VISUAL UI CONTROL (NO AUDIO MODIFICATION) ---
+  // --- 2. PHYSICAL TROYKA SLIDER (NON-ACTIVE BACKGROUND GAIN CONTROL) ---
   const upperCmd = cmd.toUpperCase();
-  if (upperCmd.startsWith('SLIDER') || upperCmd.startsWith('A1:') || upperCmd.startsWith('POT2:') || upperCmd.startsWith('VAL2:') || upperCmd.startsWith('S1:') || upperCmd.startsWith('DIST:') || upperCmd.startsWith('DRIVE:')) {
+  if (upperCmd.startsWith('SLIDER') || upperCmd.startsWith('A1:') || upperCmd.startsWith('POT2:') || upperCmd.startsWith('VAL2:') || upperCmd.startsWith('S1:') || upperCmd.startsWith('DIST:') || upperCmd.startsWith('DRIVE:') || upperCmd.startsWith('BG_GAIN:')) {
     const parts = cmd.split(':');
     const rawStr = parts.length > 1 ? parts[1] : cmd;
     let num = parseFloat(rawStr);
 
     if (!isNaN(num)) {
-      let pct = 0;
-      if (num > 1.0) {
-        pct = Math.round((num / 1023.0) * 100);
-      } else {
-        pct = Math.round(num * 100);
-      }
-      pct = Math.max(0, Math.min(100, pct));
+      let gainVal = num > 1.0 ? num / 1023.0 : num;
+      gainVal = Math.max(0, Math.min(1.0, gainVal));
 
+      // 1. Update Web Audio DSP Gain for Non-Active Background Tracks
+      setBgGain(gainVal);
+
+      // 2. Update UI Slider Element "Non-Active Background Gain" (slider-bg-gain)
+      const sliderBgGain = document.getElementById('slider-bg-gain');
+      if (sliderBgGain) sliderBgGain.value = gainVal;
+
+      // 3. Update Visual Troyka Slider (if present)
       const sliderEl = document.getElementById('slider-hardware-troyka');
       const readoutEl = document.getElementById('hardware-slider-readout');
+      const pct = Math.round(gainVal * 100);
       if (sliderEl) sliderEl.value = pct;
       if (readoutEl) readoutEl.innerText = `${pct}%`;
     }
