@@ -1,9 +1,33 @@
 import { tuneToFrequencyIndex, getTunedIndex, getTotalArchiveCount, rotateBackgroundTracks, setActiveRecordingItem } from './multi-track-mixer.js';
 import { startRecording, stopRecording } from './recorder.js';
-import { setIntelligibility } from './generative-engine.js';
+import { setIntelligibility, setScrubOffsetRatio, getScrubOffsetRatio } from './generative-engine.js';
 import { setAmbientVolume } from './ambient-soundscape.js';
 import { setBgGain } from './audio-context.js';
 import { refreshArchiveUI } from './ui.js';
+
+let midiOutput = null;
+
+// Initialize Web MIDI Access for Ableton Live Effects Control
+if (typeof navigator !== 'undefined' && navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(access => {
+    const outputs = Array.from(access.outputs.values());
+    if (outputs.length > 0) {
+      midiOutput = outputs[0];
+      console.log('🎹 Web MIDI initialized for Ableton Live:', midiOutput.name);
+    }
+  }).catch(err => console.warn('Web MIDI Notice:', err));
+}
+
+function sendMidiFxTrigger(isPressed) {
+  if (midiOutput) {
+    // Send MIDI Note 60 (C3) + CC 20 to Ableton Live
+    const noteStatus = isPressed ? 0x90 : 0x80;
+    midiOutput.send([noteStatus, 60, isPressed ? 127 : 0]);
+
+    const ccStatus = 0xB0;
+    midiOutput.send([ccStatus, 20, isPressed ? 127 : 0]);
+  }
+}
 
 let serialPort = null;
 let reader = null;
@@ -155,7 +179,47 @@ async function handleSerialCommand(cmd) {
   const ledSubText = document.getElementById('led-sub-text');
   const btnHoldRecord = document.getElementById('btn-hold-record');
 
-  // --- 1. HARDWARE PUSH BUTTON RECORDING (HOLD TO RECORD) ---
+  // --- 1. ABLETON LIVE EFFECTS BUTTON (PIN 6) ---
+  if (cmd === 'FX_START' || cmd === 'FX:1' || cmd === 'FX_TRIGGER') {
+    sendMidiFxTrigger(true);
+    if (recLed) recLed.className = 'led-indicator active';
+    if (ledText) ledText.innerText = 'ABLETON FX ACTIVE ⚡';
+    if (ledSubText) ledSubText.innerText = 'Sending MIDI trigger to Ableton Live...';
+    return;
+  }
+
+  if (cmd === 'FX_STOP' || cmd === 'FX:0') {
+    sendMidiFxTrigger(false);
+    if (recLed) recLed.className = 'led-indicator idle';
+    if (ledText) ledText.innerText = 'IDLE / LISTENING';
+    if (ledSubText) ledSubText.innerText = 'Generative Soundscape Active';
+    return;
+  }
+
+  // --- 2. EC11 ROTARY TIMELINE SCRUBBING (PINS 2 & 3) ---
+  if (cmd.startsWith('SCRUB:') || cmd.startsWith('SCRUB_POS:')) {
+    let raw = cmd.replace('SCRUB_POS:', '').replace('SCRUB:', '');
+    let ratio = parseFloat(raw);
+    if (!isNaN(ratio)) {
+      if (ratio > 1.0) ratio = ratio / 1023.0; // Scale 0-1023 to 0.0-1.0
+      setScrubOffsetRatio(ratio);
+    }
+    return;
+  }
+
+  if (cmd === 'SCRUB:+1' || cmd === 'SCRUB_INC') {
+    const current = getScrubOffsetRatio();
+    setScrubOffsetRatio(current + 0.05);
+    return;
+  }
+
+  if (cmd === 'SCRUB:-1' || cmd === 'SCRUB_DEC') {
+    const current = getScrubOffsetRatio();
+    setScrubOffsetRatio(current - 0.05);
+    return;
+  }
+
+  // --- 3. HARDWARE PUSH BUTTON RECORDING (HOLD TO RECORD) ---
   if (cmd === 'REC_START' || cmd === 'REC:1') {
     if (isHardwareRecording) return;
     isHardwareRecording = true;
@@ -234,6 +298,8 @@ async function handleSerialCommand(cmd) {
     }
 
     ratio = Math.max(0, Math.min(0.9999, 1.0 - ratio));
+    setScrubOffsetRatio(ratio);
+
     const targetIdx = Math.floor(ratio * totalCount);
 
     if (targetIdx !== currentIdx) {

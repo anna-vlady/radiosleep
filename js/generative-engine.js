@@ -7,6 +7,9 @@ import { getAudioContext, getActiveTrackBus, getBgTrackBus } from './audio-conte
 // Global Intelligibility Factor (1.0 = 100% Clear Words, 0.0 = Ethereal Ambient Cloud)
 let globalIntelligibility = 0.7;
 
+// Active Track Scrub Playhead Position (0.0 to 1.0)
+let activeScrubOffsetRatio = 0.5;
+
 export function setIntelligibility(val) {
   globalIntelligibility = Math.max(0, Math.min(1, val));
 }
@@ -14,6 +17,15 @@ export function setIntelligibility(val) {
 export function getIntelligibility() {
   return globalIntelligibility;
 }
+
+export function setScrubOffsetRatio(ratio) {
+  activeScrubOffsetRatio = Math.max(0, Math.min(1.0, ratio));
+}
+
+export function getScrubOffsetRatio() {
+  return activeScrubOffsetRatio;
+}
+
 
 /**
  * Universal Generative Stream Function
@@ -43,7 +55,7 @@ export function processAudioSampleToGenerativeStream(sampleBuffer, role = 'backg
     if (isStopped || !ctx) return;
 
     // 1. Extract a BRAND NEW unique random slice position & duration on-the-fly!
-    const slice = extractDynamicRandomSlice(ctx, sampleBuffer, 0.5, 3.5);
+    const slice = extractDynamicRandomSlice(ctx, sampleBuffer, 0.5, 3.5, role);
     if (!slice) return;
 
     sliceCounter++;
@@ -117,16 +129,23 @@ export function processAudioSampleToGenerativeStream(sampleBuffer, role = 'backg
 /**
  * Dynamically extracts a UNIQUE random slice position & length from raw AudioBuffer on-the-fly!
  */
-function extractDynamicRandomSlice(ctx, buffer, minSec = 0.5, maxSec = 3.5) {
+function extractDynamicRandomSlice(ctx, buffer, minSec = 0.5, maxSec = 3.5, role = 'background') {
   const totalDuration = buffer.duration;
   const sampleRate = buffer.sampleRate;
 
   // 1. Pick a random slice duration between minSec (0.5s) and maxSec (3.5s)
   const sliceLenSec = Math.min(minSec + Math.random() * (maxSec - minSec), totalDuration);
 
-  // 2. Pick a random start position anywhere inside the full buffer
-  const maxStartOffset = Math.max(0, totalDuration - sliceLenSec);
-  const startOffsetSec = Math.random() * maxStartOffset;
+  // 2. Pick start position: centered around scrub head for active track, random for background
+  let startOffsetSec = 0;
+  if (role === 'active') {
+    const scrubCenterSec = activeScrubOffsetRatio * totalDuration;
+    const jitter = (Math.random() - 0.5) * 0.4;
+    startOffsetSec = Math.max(0, Math.min(totalDuration - sliceLenSec, scrubCenterSec + jitter));
+  } else {
+    const maxStartOffset = Math.max(0, totalDuration - sliceLenSec);
+    startOffsetSec = Math.random() * maxStartOffset;
+  }
 
   const startSample = Math.floor(startOffsetSec * sampleRate);
   const frameCount = Math.floor(sliceLenSec * sampleRate);
