@@ -16,6 +16,11 @@ const bgItems = [null, null, null, null]; // [{ name, color, audioBuffer }]
 const sampleStack = [];
 let currentTunedIndex = 0;
 
+// Continuous FM Radio Frequency State (88.0 MHz to 108.0 MHz FM)
+const MIN_FREQ_MHZ = 88.0;
+const MAX_FREQ_MHZ = 108.0;
+let currentRadioFrequencyMHz = 88.0;
+
 // 2-Minute Rotation Clock (120 seconds)
 const ROTATION_INTERVAL_SEC = 120;
 let rotationSecondsLeft = ROTATION_INTERVAL_SEC;
@@ -49,6 +54,34 @@ export function getTunedIndex() {
 export function getTotalArchiveCount() {
   return sampleStack.length;
 }
+
+export function getCurrentRadioFrequencyMHz() {
+  return currentRadioFrequencyMHz;
+}
+
+export function setRadioFrequencyMHz(mhz) {
+  currentRadioFrequencyMHz = mhz;
+  if (currentRadioFrequencyMHz > MAX_FREQ_MHZ) {
+    currentRadioFrequencyMHz = MIN_FREQ_MHZ + (currentRadioFrequencyMHz - MAX_FREQ_MHZ);
+  } else if (currentRadioFrequencyMHz < MIN_FREQ_MHZ) {
+    currentRadioFrequencyMHz = MAX_FREQ_MHZ - (MIN_FREQ_MHZ - currentRadioFrequencyMHz);
+  }
+
+  const total = sampleStack.length;
+  if (total > 0) {
+    const ratio = (currentRadioFrequencyMHz - MIN_FREQ_MHZ) / (MAX_FREQ_MHZ - MIN_FREQ_MHZ);
+    const targetIdx = Math.floor(ratio * total);
+    if (targetIdx !== currentTunedIndex) {
+      tuneToFrequencyIndex(targetIdx);
+    }
+  }
+  notifyMatrixUpdate();
+}
+
+export function stepRadioFrequency(deltaMHz) {
+  setRadioFrequencyMHz(currentRadioFrequencyMHz + deltaMHz);
+}
+
 
 /**
  * Clears all active and background track streams

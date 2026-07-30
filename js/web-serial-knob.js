@@ -1,4 +1,4 @@
-import { tuneToFrequencyIndex, getTunedIndex, getTotalArchiveCount, rotateBackgroundTracks, setActiveRecordingItem } from './multi-track-mixer.js';
+import { tuneToFrequencyIndex, getTunedIndex, getTotalArchiveCount, rotateBackgroundTracks, setActiveRecordingItem, stepRadioFrequency, setRadioFrequencyMHz, getCurrentRadioFrequencyMHz } from './multi-track-mixer.js';
 import { startRecording, stopRecording } from './recorder.js';
 import { setIntelligibility, setScrubOffsetRatio, getScrubOffsetRatio } from './generative-engine.js';
 import { setAmbientVolume } from './ambient-soundscape.js';
@@ -32,6 +32,7 @@ function sendMidiFxTrigger(isPressed) {
 let serialPort = null;
 let reader = null;
 let isConnected = false;
+let lastPotRawValue = null;
 
 /**
  * Initializes Web Serial USB Link for physical EC11 / Potentiometer / Hardware Controls
@@ -179,7 +180,7 @@ async function handleSerialCommand(cmd) {
   const ledSubText = document.getElementById('led-sub-text');
   const btnHoldRecord = document.getElementById('btn-hold-record');
 
-  // --- 1. ABLETON LIVE EFFECTS BUTTON (PIN 6) ---
+  // --- 1. ABLETON LIVE EFFECTS BUTTON (PIN 5) ---
   if (cmd === 'FX_START' || cmd === 'FX:1' || cmd === 'FX_TRIGGER') {
     sendMidiFxTrigger(true);
     if (recLed) recLed.className = 'led-indicator active';
@@ -219,7 +220,7 @@ async function handleSerialCommand(cmd) {
     return;
   }
 
-  // --- 3. HARDWARE PUSH BUTTON RECORDING (HOLD TO RECORD) ---
+  // --- 3. HARDWARE PUSH BUTTON RECORDING (PIN 6 - HOLD TO RECORD) ---
   if (cmd === 'REC_START' || cmd === 'REC:1') {
     if (isHardwareRecording) return;
     isHardwareRecording = true;
@@ -285,27 +286,45 @@ async function handleSerialCommand(cmd) {
     return;
   }
 
-  // --- 3. ANALOG POTENTIOMETER CHANNEL TUNER ---
+  // --- 3. CONTINUOUS FM RADIO FREQUENCY TUNER (EC11 FREE-SPINNING ENCODER) ---
+  if (cmd === 'CW' || cmd === 'STEP:+1') {
+    stepRadioFrequency(0.2);
+    refreshArchiveUI();
+    return;
+  }
+
+  if (cmd === 'CCW' || cmd === 'STEP:-1') {
+    stepRadioFrequency(-0.2);
+    refreshArchiveUI();
+    return;
+  }
+
   if (cmd.startsWith('VAL:') || cmd.startsWith('POT:')) {
     if (totalCount === 0) return;
 
-    let ratio = 0;
+    let rawVal = 0;
     if (cmd.startsWith('VAL:')) {
-      ratio = parseFloat(cmd.replace('VAL:', ''));
-    } else if (cmd.startsWith('POT:')) {
-      const rawVal = parseInt(cmd.replace('POT:', ''), 10);
-      ratio = rawVal / 1023.0;
+      rawVal = parseFloat(cmd.replace('VAL:', '')) * 1023.0;
+    } else {
+      rawVal = parseInt(cmd.replace('POT:', ''), 10);
     }
 
-    ratio = Math.max(0, Math.min(0.9999, 1.0 - ratio));
-    setScrubOffsetRatio(ratio);
+    if (lastPotRawValue !== null) {
+      let diff = rawVal - lastPotRawValue;
+      if (diff > 500) diff -= 1024;
+      if (diff < -500) diff += 1024;
 
-    const targetIdx = Math.floor(ratio * totalCount);
-
-    if (targetIdx !== currentIdx) {
-      tuneToFrequencyIndex(targetIdx);
+      if (Math.abs(diff) >= 2) {
+        const deltaMHz = (diff / 1023.0) * 20.0;
+        stepRadioFrequency(deltaMHz);
+        refreshArchiveUI();
+      }
+    } else {
+      const ratio = Math.max(0, Math.min(0.9999, 1.0 - (rawVal / 1023.0)));
+      setRadioFrequencyMHz(88.0 + ratio * 20.0);
       refreshArchiveUI();
     }
+    lastPotRawValue = rawVal;
     return;
   }
 

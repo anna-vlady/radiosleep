@@ -9,7 +9,9 @@ import {
   getBgItems, 
   tuneToFrequencyIndex, 
   getTunedIndex, 
-  getTotalArchiveCount 
+  getTotalArchiveCount,
+  getCurrentRadioFrequencyMHz,
+  stepRadioFrequency
 } from './multi-track-mixer.js';
 import { setIntelligibility, getIntelligibility } from './generative-engine.js';
 import { setAbletonFileReference, applyAbletonMp3File } from './ambient-soundscape.js';
@@ -595,11 +597,18 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
 let isUserScrubbingDial = false;
 
 /**
- * Updates Tactile Dark LED Rotary Knob Visual Angle & Illumination
+ * Updates Tactile Dark LED Rotary Knob Visual Angle & Continuous FM Readout
  */
 export function updateKnobRotationUI(index, totalCount) {
   const knobBody = document.getElementById('tactile-knob-body');
   const knobRing = document.getElementById('knob-led-ring');
+  const freqReadout = document.getElementById('radio-freq-readout');
+
+  const freqMHz = getCurrentRadioFrequencyMHz();
+  if (freqReadout) {
+    freqReadout.innerText = `${freqMHz.toFixed(1)} MHz FM`;
+  }
+
   if (!knobBody || !knobRing) return;
 
   const TOTAL_DOTS = 36;
@@ -607,18 +616,13 @@ export function updateKnobRotationUI(index, totalCount) {
   const END_ANGLE = 135;
   const RANGE = END_ANGLE - START_ANGLE;
 
-  let angle = START_ANGLE;
-  if (totalCount > 1) {
-    const stepAngle = RANGE / (totalCount - 1);
-    angle = START_ANGLE + index * stepAngle;
-  } else if (totalCount === 1) {
-    angle = START_ANGLE;
-  }
+  // Map 88.0 MHz - 108.0 MHz FM scale continuously
+  const norm = (freqMHz - 88.0) / 20.0;
+  const angle = START_ANGLE + norm * RANGE;
 
   knobBody.style.transform = `rotate(${angle}deg)`;
 
-  const norm = (angle - START_ANGLE) / RANGE;
-  const activeCount = totalCount > 0 ? Math.round(norm * (TOTAL_DOTS - 1)) + 1 : 0;
+  const activeCount = totalCount > 0 ? Math.round(norm * (TOTAL_DOTS - 1)) + 1 : Math.round(norm * TOTAL_DOTS);
 
   const dots = knobRing.querySelectorAll('.led-dot');
   dots.forEach((dot, idx) => {
@@ -632,7 +636,7 @@ export function updateKnobRotationUI(index, totalCount) {
 
 /**
  * Tactile Dark LED Rotary Channel Selector Knob Controller
- * (Turning knob 1 tick tunes Active Track to sample K from archive with N ticks for N total samples)
+ * (Supports Continuous FM Radio Tuning & Free-Spinning EC11 Encoder Integration)
  */
 function initTactileLedKnob() {
   const knobRing = document.getElementById('knob-led-ring');
@@ -667,21 +671,9 @@ function initTactileLedKnob() {
     knobRing.appendChild(dot);
   }
 
-  // Interactive Dragging & Tick Tuning
+  // Interactive Dragging & Continuous Frequency Tuning
   let isDragging = false;
   let startY = 0;
-  let startIndex = 0;
-  const DRAG_PX_PER_STEP = 28; // 28px drag = 1 channel tick
-
-  function stepChannelTo(targetIndex) {
-    const totalCount = getTotalArchiveCount();
-    if (totalCount === 0) return;
-    const clampedIndex = ((targetIndex % totalCount) + totalCount) % totalCount;
-    if (clampedIndex !== getTunedIndex()) {
-      tuneToFrequencyIndex(clampedIndex);
-      refreshArchiveUI();
-    }
-  }
 
   knobBody.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -689,15 +681,17 @@ function initTactileLedKnob() {
     isDragging = true;
     isUserScrubbingDial = true;
     startY = e.clientY;
-    startIndex = getTunedIndex();
   });
 
   knobBody.addEventListener('pointermove', (e) => {
     if (!isDragging) return;
-    const deltaY = e.clientY - startY; // Dragging DOWN increases channel index (newer to older)
-    const steps = Math.round(deltaY / DRAG_PX_PER_STEP);
-    const targetIndex = startIndex + steps;
-    stepChannelTo(targetIndex);
+    const deltaY = e.clientY - startY;
+    if (Math.abs(deltaY) >= 12) {
+      const stepVal = deltaY < 0 ? 0.2 : -0.2; // Drag UP increases FM frequency
+      stepRadioFrequency(stepVal);
+      startY = e.clientY;
+      refreshArchiveUI();
+    }
   });
 
   const endDrag = (e) => {
