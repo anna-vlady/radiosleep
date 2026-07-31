@@ -230,7 +230,19 @@ async function handleSerialCommand(cmd) {
     if (ledText) ledText.innerText = 'RECORDING ACTIVE (HARDWARE)';
     if (ledSubText) ledSubText.innerText = 'Capturing vocal input from hardware button...';
 
-    startRecording();
+    startRecording(async () => {
+      // Auto-stop when 15 seconds max is reached
+      isHardwareRecording = false;
+      if (btnHoldRecord) btnHoldRecord.classList.remove('recording');
+      const result = await stopRecording();
+      if (result && result.recordItem) {
+        setActiveRecordingItem(result.recordItem);
+      }
+      if (recLed) recLed.className = 'led-indicator idle';
+      if (ledText) ledText.innerText = 'IDLE / LISTENING';
+      if (ledSubText) ledSubText.innerText = 'Generative Soundscape Active';
+      refreshArchiveUI();
+    });
     return;
   }
 
@@ -239,21 +251,26 @@ async function handleSerialCommand(cmd) {
     isHardwareRecording = false;
 
     if (btnHoldRecord) btnHoldRecord.classList.remove('recording');
-    if (recLed) recLed.className = 'led-indicator idle';
-    if (ledText) ledText.innerText = 'PROCESSING SAMPLE';
-    if (ledSubText) ledSubText.innerText = 'Chopping & Applying FX...';
 
     try {
       const result = await stopRecording();
-      if (result && result.recordItem) {
+      if (result && result.discarded && result.reason === 'too_short') {
+        if (recLed) recLed.className = 'led-indicator idle';
+        if (ledText) ledText.innerText = 'DISCARDED (< 1.5s TOO SHORT)';
+        if (ledSubText) ledSubText.innerText = 'Hold hardware button for at least 1.5 seconds.';
+        setTimeout(() => {
+          if (ledText) ledText.innerText = 'IDLE / LISTENING';
+          if (ledSubText) ledSubText.innerText = 'Generative Soundscape Active';
+        }, 3500);
+      } else if (result && result.recordItem) {
         setActiveRecordingItem(result.recordItem);
+        if (recLed) recLed.className = 'led-indicator idle';
+        if (ledText) ledText.innerText = 'IDLE / LISTENING';
+        if (ledSubText) ledSubText.innerText = 'Generative Soundscape Active';
+        refreshArchiveUI();
       }
     } catch (err) {
       console.error('Hardware stop recording error:', err);
-    } finally {
-      if (ledText) ledText.innerText = 'IDLE / LISTENING';
-      if (ledSubText) ledSubText.innerText = 'Generative Soundscape Active';
-      refreshArchiveUI();
     }
     return;
   }

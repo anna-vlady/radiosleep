@@ -2,7 +2,7 @@
    RADIOSLEEP — User Interface Controller & Ableton DAW Multi-Track Timeline
    ========================================================================== */
 
-import { getAllArchivedRecordings } from './recorder.js';
+import { getAllArchivedRecordings, downloadRecordingAsWav } from './recorder.js';
 import { 
   setActiveRecordingItem, 
   getActiveItem, 
@@ -117,7 +117,12 @@ export function initUI({ onStartRecord, onStopRecord, onPresetSelect, onSourceCh
     ledText.innerText = 'RECORDING ACTIVE';
     ledSubText.innerText = 'Capturing vocal input...';
 
-    if (onStartRecord) await onStartRecord();
+    if (onStartRecord) {
+      await onStartRecord(() => {
+        // Auto-stop callback when 15s maximum is reached
+        triggerStop();
+      });
+    }
   };
 
   const triggerStop = (e) => {
@@ -126,15 +131,23 @@ export function initUI({ onStartRecord, onStopRecord, onPresetSelect, onSourceCh
     isPointerDown = false;
 
     btnHoldRecord.classList.remove('recording');
-    recLed.className = 'led-indicator idle';
-    ledText.innerText = 'PROCESSING SAMPLE';
-    ledSubText.innerText = 'Chopping & Applying FX...';
 
     if (onStopRecord) {
-      onStopRecord().then(() => {
-        ledText.innerText = 'IDLE / LISTENING';
-        ledSubText.innerText = 'Generative Soundscape Active';
-        refreshArchiveUI();
+      onStopRecord().then((res) => {
+        if (res && res.discarded && res.reason === 'too_short') {
+          recLed.className = 'led-indicator idle';
+          ledText.innerText = 'DISCARDED (< 1.5s TOO SHORT)';
+          ledSubText.innerText = 'Hold record button for at least 1.5 seconds.';
+          setTimeout(() => {
+            ledText.innerText = 'IDLE / LISTENING';
+            ledSubText.innerText = 'Generative Soundscape Active';
+          }, 3500);
+        } else {
+          recLed.className = 'led-indicator idle';
+          ledText.innerText = 'IDLE / LISTENING';
+          ledSubText.innerText = 'Generative Soundscape Active';
+          refreshArchiveUI();
+        }
       });
     }
   };
@@ -393,10 +406,12 @@ export async function refreshArchiveUI() {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
       const item = items.find(i => i.id === id);
-      if (item && item.blob) {
+      if (item && item.audioBuffer) {
+        downloadRecordingAsWav(item.audioBuffer, item.name);
+      } else if (item && item.blob) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(item.blob);
-        a.download = `${item.name}.webm`;
+        a.download = `${item.name}.wav`;
         a.click();
       }
     });

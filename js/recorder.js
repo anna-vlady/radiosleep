@@ -3,6 +3,7 @@
    ========================================================================== */
 
 import { getAudioContext } from './audio-context.js';
+import { uploadToSupabaseCloud } from './supabase-client.js';
 
 const DB_NAME = 'RADIOSLEEP_ARCHIVE_DB';
 const STORE_NAME = 'raw_recordings';
@@ -84,12 +85,22 @@ export function normalizeBuffer(buffer) {
 /**
  * Saves a raw audio Blob and decoded AudioBuffer to IndexedDB local archive with persistent color
  */
-export async function saveRecordingToArchive(blob, audioBuffer, namePrefix = 'sample') {
+export async function saveRecordingToArchive(blob, audioBuffer, namePrefix = 'dream') {
   const db = await openDB();
   const timestamp = new Date();
-  const formattedDate = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  // Count existing recordings to determine sequential number (dream01, dream02, ...)
+  const existingCount = await new Promise((resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const req = tx.objectStore(STORE_NAME).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(0);
+  });
+
+  const nextSeq = existingCount + 1;
+  const seqStr = String(nextSeq).padStart(2, '0');
+  const name = `dream${seqStr}`;
   const id = `rec_${Date.now()}`;
-  const name = `${namePrefix}_${formattedDate}`;
 
   // Assign persistent color
   const color = RECORDING_COLORS[globalColorIndex % RECORDING_COLORS.length];
@@ -120,6 +131,29 @@ export async function saveRecordingToArchive(blob, audioBuffer, namePrefix = 'sa
     audioBuffer
   };
 
+  // 1. Automatically save raw WAV directly into c:\03-Personal\Notations\Radiosleep\dreams\
+  try {
+    const wavBlob = bufferToWavBlob(audioBuffer);
+    fetch('/api/save-dream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'audio/wav',
+        'X-Filename': `${name}.wav`
+      },
+      body: wavBlob
+    }).then(res => {
+      if (res.ok) console.log(`📁 Saved to local project directory: dreams/${name}.wav`);
+    }).catch(() => {
+      // Fallback to browser download if server endpoint is not running
+      downloadRecordingAsWav(audioBuffer, `${name}.wav`);
+    });
+  } catch (e) {
+    downloadRecordingAsWav(audioBuffer, `${name}.wav`);
+  }
+
+  // 2. Asynchronously sync to Supabase Cloud Archive (dream01.wav, dream02.wav...)
+  uploadToSupabaseCloud(returnItem);
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
@@ -127,6 +161,77 @@ export async function saveRecordingToArchive(blob, audioBuffer, namePrefix = 'sa
     tx.oncomplete = () => resolve(returnItem);
     tx.onerror = (e) => reject(e.target.error);
   });
+}
+
+/**
+ * Encodes an AudioBuffer into a WAV Blob
+ */
+export function bufferToWavBlob(audioBuffer) {
+  if (!audioBuffer) return new Blob();
+  const numChannels = audioBuffer.numberOfChannels;
+  const sampleRate = audioBuffer.sampleRate;
+  const bitDepth = 16;
+
+  let samples;
+  if (numChannels === 2) {
+    const inputL = audioBuffer.getChannelData(0);
+    const inputR = audioBuffer.getChannelData(1);
+    const length = inputL.length + inputR.length;
+    samples = new Float32Array(length);
+    let index = 0, inputIndex = 0;
+    while (index < length) {
+      samples[index++] = inputL[inputIndex];
+      samples[index++] = inputR[inputIndex];
+      inputIndex++;
+    }
+  } else {
+    samples = audioBuffer.getChannelData(0);
+  }
+
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  const writeString = (v, offset, str) => {
+    for (let i = 0; i < str.length; i++) v.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true);
+  view.setUint16(32, numChannels * (bitDepth / 8), true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+/**
+ * Encodes an AudioBuffer into a downloadable WAV Blob and triggers browser download
+ */
+export function downloadRecordingAsWav(audioBuffer, filename = 'sample.wav') {
+  if (!audioBuffer) return;
+  const wavBlob = bufferToWavBlob(audioBuffer);
+  const downloadUrl = URL.createObjectURL(wavBlob);
+  const a = document.createElement('a');
+  a.href = downloadUrl;
+  a.download = filename.endsWith('.wav') ? filename : `${filename}.wav`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
 }
 
 /**
@@ -226,13 +331,27 @@ function startVuMeterLoop() {
   checkVu();
 }
 
+let recordingStartTimeMs = 0;
+let recordingMaxTimeoutId = null;
+
 /**
- * Starts recording vocal sample
+ * Starts recording vocal sample (with 15s max limit auto-stop)
  */
-export function startRecording() {
+export function startRecording(onAutoStop) {
   if (isRecording || !mediaStream) return false;
   audioChunks = [];
   isRecording = true;
+  recordingStartTimeMs = Date.now();
+
+  if (recordingMaxTimeoutId) clearTimeout(recordingMaxTimeoutId);
+
+  // 15-second maximum recording limit (auto-stop and save)
+  recordingMaxTimeoutId = setTimeout(async () => {
+    if (isRecording) {
+      console.log('⏰ 15-second maximum recording limit reached. Auto-stopping & saving...');
+      if (onAutoStop) onAutoStop();
+    }
+  }, 15000);
 
   try {
     mediaRecorder = new MediaRecorder(mediaStream);
@@ -244,15 +363,21 @@ export function startRecording() {
   } catch (e) {
     console.error('Failed to start MediaRecorder:', e);
     isRecording = false;
+    if (recordingMaxTimeoutId) clearTimeout(recordingMaxTimeoutId);
     return false;
   }
 }
 
 /**
- * Stops recording and returns decoded AudioBuffer & saved Archive record
+ * Stops recording and enforces duration bounds (Discard <3s, Auto-Clamp >15s)
  */
 export function stopRecording() {
   return new Promise((resolve, reject) => {
+    if (recordingMaxTimeoutId) {
+      clearTimeout(recordingMaxTimeoutId);
+      recordingMaxTimeoutId = null;
+    }
+
     if (!isRecording || !mediaRecorder) {
       resolve(null);
       return;
@@ -261,14 +386,36 @@ export function stopRecording() {
     isRecording = false;
 
     mediaRecorder.onstop = async () => {
+      const elapsedSec = (Date.now() - recordingStartTimeMs) / 1000.0;
       const blob = new Blob(audioChunks, { type: 'audio/webm' });
       const ctx = getAudioContext();
       const arrayBuffer = await blob.arrayBuffer();
 
       try {
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-        const recordItem = await saveRecordingToArchive(blob, audioBuffer, 'voice_recording');
-        resolve({ recordItem, audioBuffer });
+        const rawDuration = audioBuffer.duration;
+
+        // --- RULE 1: DISCARD IF LESS THAN 1.5 SECONDS (< 1.5s) ---
+        if (rawDuration < 1.5 || elapsedSec < 1.3) {
+          console.warn(`⚠️ Recording too short (${rawDuration.toFixed(2)}s). Minimum 1.5 seconds required. Discarding sample!`);
+          resolve({ recordItem: null, audioBuffer: null, discarded: true, reason: 'too_short', duration: rawDuration });
+          return;
+        }
+
+        // --- RULE 2: CLAMP/TRIM TO 15 SECONDS MAXIMUM IF OVER 15s (> 15.0s) ---
+        let finalBuffer = audioBuffer;
+        if (rawDuration > 15.0) {
+          const sampleRate = audioBuffer.sampleRate;
+          const maxFrames = Math.floor(15.0 * sampleRate);
+          const clampedBuffer = ctx.createBuffer(audioBuffer.numberOfChannels, maxFrames, sampleRate);
+          for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
+            clampedBuffer.copyToChannel(audioBuffer.getChannelData(c).subarray(0, maxFrames), c);
+          }
+          finalBuffer = clampedBuffer;
+        }
+
+        const recordItem = await saveRecordingToArchive(blob, finalBuffer, 'voice_recording');
+        resolve({ recordItem, audioBuffer: finalBuffer, discarded: false, duration: finalBuffer.duration });
       } catch (err) {
         console.error('Audio decode error:', err);
         reject(err);
